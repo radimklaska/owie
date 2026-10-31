@@ -89,7 +89,7 @@ jobs:
             if (size) body += `\n\`\`\`\n${size}\n\`\`\`\n`;
             if (failed) body += `\n<details open><summary>Failed tests</summary>\n\n\`\`\`\n${failed}\n\`\`\`\n</details>\n`;
             if (summary) body += `\n<details><summary>Test summary</summary>\n\n\`\`\`\n${summary.trim()}\n\`\`\`\n</details>\n`;
-            body += `\n<sub>Updated on every push; the artifact link needs a GitHub login and expires with the run's retention.</sub>\n`;
+            body += `\n<sub>Posted by the "Build and test everything" workflow and updated on every push; the artifact link needs a GitHub login and expires with the run's retention.</sub>\n`;
 
             const { owner, repo } = context.repo;
             const issue_number = pr.number;
