@@ -5,6 +5,12 @@ on: [push, pull_request, workflow_call]
 # separate job that runs no repository or third-party code.
 permissions:
   contents: read
+# One run at a time per pull request (or per branch/tag for pushes): a newer
+# push cancels the older PR run, so two runs never race for the ci-pr-<n>
+# pre-release or post reports out of order.
+concurrency:
+  group: build-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
