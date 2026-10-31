@@ -34,9 +34,12 @@ void BmsRelay::currentParser(Packet& p) {
   }
   p.setShouldForward(isCharging());
 
-  // 0x5 message encodes current as signed int16.
-  // The scaling factor (tested on a Pint) seems to be 0.055
-  // i.e. 1 in the data message below corresponds to 55 milliamps.
+  // 0x5 message encodes current as signed int16 in raw BMS ADC counts,
+  // positive = discharge. The scaling factor (tested on a Pint) is 0.055,
+  // i.e. 1 count corresponds to 55 milliamps. That matches the BMS hardware
+  // (12-bit ADC, 4.5 V reference, 1 mOhm shunt behind a gain-20 amplifier
+  // -> 54.9 mA/count) and the BMS's own state-of-charge full-scale
+  // constants, so it applies to XR and Pint boards alike.
   current_milliamps_ = int16FromNetworkOrder(p.data()) * CURRENT_SCALER;
   battery_fuel_gauge_.updateCurrent(current_milliamps_, now_millis_);
 }
@@ -46,7 +49,12 @@ void BmsRelay::bmsSerialParser(Packet& p) {
     return;
   }
   // 0x6 message has the BMS serial number encoded inside of it.
-  // It is the last seven digits from the sticker on the back of the BMS.
+  // It is the last seven digits from the sticker on the back of the BMS. On
+  // the BMS side these are the low bytes of the four user-ID words of its
+  // microcontroller; the BMS only reports them and never checks anything, so
+  // whatever pairing exists is decided by the controller. XR BMSes with
+  // firmware 2006 (hardware 4206-4209) do not send this message at all;
+  // 4210 and Pint boards do.
   if (captured_serial_ == 0) {
     for (int i = 0; i < 4; i++) {
       captured_serial_ |= p.data()[i] << (8 * (3 - i));
@@ -66,8 +74,12 @@ void BmsRelay::cellVoltageParser(Packet& p) {
   if (p.getType() != 2) {
     return;
   }
-  // The data in this packet is 16 int16-s. First 15 of them is
-  // individual cell voltages in millivolts. The last value is mysterious.
+  // The data in this packet is 16 uint16-s. The first 15 are the individual
+  // cell voltages in millivolts. The 16th is not a cell: the BMS's send loop
+  // runs one word past its 15-entry cell array, so the word that follows it
+  // in BMS RAM goes out too - the BMS's millisecond counter since its
+  // one-second tick, typically 42 (the time its measurement block needs to
+  // get to this message).
   const uint8_t* const data = p.data();
   uint16_t total_voltage = 0;
   uint16_t min_voltage = 0xFFFF;
