@@ -109,6 +109,10 @@ class BmsRelay {
     return battery_fuel_gauge_.getMilliampSecondsRecharged() / 3600;
   }
 
+  // Status byte (message 0x0) as received from the BMS: bits 1:0 temperature
+  // (01 hot, 10 cold, 11 sensor error), bits 3:2 voltage (01 under-voltage,
+  // 10 over-voltage), bit 4 balancing, bit 5 charger detected, bits 7:6 the
+  // BMS's own SOC bucket (rewritten on forward, see bmsStatusParser).
   bool isCharging() { return last_status_byte_ & 0x20; }
   bool isBatteryEmpty() { return last_status_byte_ & 0x4; }
   bool isBatteryTempOutOfRange() {
