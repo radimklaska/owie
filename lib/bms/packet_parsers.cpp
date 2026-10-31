@@ -12,6 +12,24 @@ inline int16_t int16FromNetworkOrder(const void* const p) {
   return ((uint16_t)(*charPointer)) << 8 | *(charPointer + 1);
 }
 
+// Bits 7:6 of the BMS status byte (message 0x0) are the BMS's own coarse
+// state of charge: 00 = above 80 %, 01 = 50..80 %, 10 = 20..50 %,
+// 11 = 20 % or below.
+constexpr uint8_t STATUS_SOC_BUCKET_MASK = 0xC0;
+
+uint8_t socBucketBits(int soc_percent) {
+  if (soc_percent > 80) {
+    return 0x00;
+  }
+  if (soc_percent > 50) {
+    return 0x40;
+  }
+  if (soc_percent > 20) {
+    return 0x80;
+  }
+  return 0xC0;
+}
+
 }  // namespace
 
 void BmsRelay::batteryPercentageParser(Packet& p) {
@@ -109,4 +127,12 @@ void BmsRelay::bmsStatusParser(Packet& p) {
   p.setShouldForward(isCharging() || isBatteryEmpty() ||
                      isBatteryTempOutOfRange() || isBatteryOvercharged());
   battery_fuel_gauge_.updateChargingStatus(isCharging());
+
+  // When the packet does go out, make its SOC bucket (bits 7:6) agree with
+  // the percentage we report in message 0x3 instead of the BMS's own idea of
+  // the pack, which is wrong for an expanded battery.
+  if (overridden_soc_percent_ >= 0) {
+    p.data()[0] = (last_status_byte_ & ~STATUS_SOC_BUCKET_MASK) |
+                  socBucketBits(overridden_soc_percent_);
+  }
 }
