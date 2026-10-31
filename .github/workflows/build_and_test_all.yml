@@ -1,14 +1,21 @@
 name: Build and test everything
 on: [push, pull_request, workflow_call]
+# The build job runs third-party code (pip, npm, PlatformIO), so it only gets a
+# read-only token. Publishing the PR report needs write access and is done in a
+# separate job that runs no repository or third-party code.
 permissions:
-  # contents: write is needed to publish the per-PR firmware pre-release.
-  contents: write
-  pull-requests: write
+  contents: read
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.tests.outcome }}
+      build: ${{ steps.build.outcome }}
+      firmware_artifact_url: ${{ steps.artifact.outputs.artifact-url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -49,17 +56,51 @@ jobs:
         with:
           name: firmware
           path: .pio/build/d1_mini_lite_clone/firmware.bin
+      - name: Upload test and build logs for the PR report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-logs
+          path: |
+            test-output.txt
+            build-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  pr_report:
+    # Pull requests only (pushes and the tagged-release workflow_call have no PR).
+    # Forks get a read-only token, so this job must never fail the build.
+    if: always() && github.event_name == 'pull_request'
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download test and build logs
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-logs
+          path: logs
+        continue-on-error: true
+      - name: Download firmware
+        if: needs.build_and_test.outputs.build == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: fw
       - name: Publish firmware.bin as a direct download (per-PR pre-release)
         # Artifacts are only served as zip files, so the .bin is published as the
         # single asset of a pre-release tagged ci-pr-<number>. The release is
         # recreated on every push (tag follows the PR head) and deleted by
-        # pr_cleanup.yml when the PR closes. Fork PRs have a read-only token, so
-        # this is allowed to fail; the comment then falls back to the artifact.
+        # pr_cleanup.yml when the PR closes.
         id: firmware
-        if: always() && github.event_name == 'pull_request' && steps.build.outcome == 'success'
+        if: needs.build_and_test.outputs.build == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -67,26 +108,22 @@ jobs:
           TAG="ci-pr-${PR_NUMBER}"
           NOTES="Automated build of PR #${PR_NUMBER} at ${HEAD_SHA} by the \"Build and test everything\" workflow. Pre-release only: replaced on every push to the PR and deleted when the PR closes. This is not a release of Owie; see Releases for those."
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" .pio/build/d1_mini_lite_clone/firmware.bin \
+          gh release create "$TAG" fw/firmware.bin \
             --prerelease --target "$HEAD_SHA" --title "CI build for PR #${PR_NUMBER}" --notes "$NOTES"
-          echo "url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/firmware.bin" >> "$GITHUB_OUTPUT"
-      - name: Report test result and firmware link on the PR
-        # Pull requests only (pushes and the tagged-release workflow_call have no PR).
-        # Forks get a read-only token, so a failed comment must not fail the build.
-        if: always() && github.event_name == 'pull_request'
-        continue-on-error: true
+          echo "url=https://github.com/${GH_REPO}/releases/download/${TAG}/firmware.bin" >> "$GITHUB_OUTPUT"
+      - name: Comment test result and firmware links on the PR
         uses: actions/github-script@v7
         env:
-          TESTS_OUTCOME: ${{ steps.tests.outcome }}
-          BUILD_OUTCOME: ${{ steps.build.outcome }}
-          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          TESTS_OUTCOME: ${{ needs.build_and_test.outputs.tests }}
+          BUILD_OUTCOME: ${{ needs.build_and_test.outputs.build }}
+          ARTIFACT_URL: ${{ needs.build_and_test.outputs.firmware_artifact_url }}
           FIRMWARE_URL: ${{ steps.firmware.outputs.url }}
         with:
           script: |
             const fs = require('fs');
             const read = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
-            const tests = read('test-output.txt');
-            const build = read('build-output.txt');
+            const tests = read('logs/test-output.txt');
+            const build = read('logs/build-output.txt');
             const marker = '<!-- owie-ci-report -->';
 
             // PlatformIO prints a SUMMARY table followed by "=== N test cases: ... ===".
