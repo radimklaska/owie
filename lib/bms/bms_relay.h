@@ -90,11 +90,28 @@ class BmsRelay {
   uint16_t getTotalVoltageMillivolts() { return total_voltage_millivolts_; }
 
   /**
-   * @brief Cell voltages in millivolts.
+   * @brief Value the BMS reports when a thermistor reads above its clamp
+   * (105 C for the pack sensors, 175 C for the board sensor), e.g. a shorted
+   * sensor - the BMS's own "sensor error" case. An open sensor reads as 0 C.
+   */
+  static constexpr uint8_t TEMPERATURE_INVALID = 0xFF;
+
+  /**
+   * @brief Temperatures in degrees Celsius, unsigned (0 = 0 C or below).
+   * Indices 0..3 are the pack thermistors, index 4 (BOARD_TEMPERATURE_INDEX)
+   * is a thermistor on the BMS board itself with a different NTC curve - it
+   * is not part of the pack temperature. TEMPERATURE_INVALID marks a bad
+   * reading.
    * @return pointer to a 5 element array.
    */
-  int8_t* const getTemperaturesCelsius() { return temperatures_celsius_; }
+  const uint8_t* getTemperaturesCelsius() { return temperatures_celsius_; }
 
+  static constexpr int BOARD_TEMPERATURE_INDEX = 4;
+
+  /**
+   * @brief Average of the valid pack thermistors (indices 0..3), 0 if none is
+   * valid.
+   */
   uint8_t getAverageTemperatureCelsius() { return avg_temperature_celsius_; }
 
   /**
@@ -144,8 +161,8 @@ class BmsRelay {
   uint16_t cell_millivolts_[15] = {0};
   uint16_t total_voltage_millivolts_ = 0;
 
-  int8_t temperatures_celsius_[5] = {0};
-  int8_t avg_temperature_celsius_ = 0;
+  uint8_t temperatures_celsius_[5] = {0};
+  uint8_t avg_temperature_celsius_ = 0;
   uint8_t last_status_byte_ = 0;
   const Source source_;
   const Sink sink_;

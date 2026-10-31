@@ -87,14 +87,26 @@ void BmsRelay::temperatureParser(Packet& p) {
   if (p.getType() != 4) {
     return;
   }
-  int8_t* const temperatures = (int8_t*)p.data();
-  int16_t temperature_sum = 0;
+  // 0x4 message: five unsigned bytes in degrees Celsius. The BMS clamps at
+  // 0 C from below and reports 0xFF for a reading above the clamp (its
+  // "sensor error" case, e.g. a shorted thermistor). The
+  // first four are the pack thermistors; the fifth sits on the BMS board
+  // (different NTC curve, 175 C clamp) and the BMS itself leaves it out of
+  // its own min/max logic, so it is left out of the average here too.
+  const uint8_t* const temperatures = p.data();
+  uint16_t temperature_sum = 0;
+  uint8_t valid_count = 0;
   for (int i = 0; i < 5; i++) {
-    int8_t temp = temperatures[i];
-    temperature_sum += temp;
+    const uint8_t temp = temperatures[i];
     temperatures_celsius_[i] = temp;
+    if (i == BOARD_TEMPERATURE_INDEX || temp == TEMPERATURE_INVALID) {
+      continue;
+    }
+    temperature_sum += temp;
+    valid_count++;
   }
-  avg_temperature_celsius_ = temperature_sum / 5;
+  avg_temperature_celsius_ =
+      valid_count == 0 ? 0 : temperature_sum / valid_count;
 }
 
 void BmsRelay::bmsStatusParser(Packet& p) {
