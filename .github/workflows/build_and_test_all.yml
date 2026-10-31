@@ -154,16 +154,9 @@ jobs:
             if (size) body += `\n\`\`\`\n${size}\n\`\`\`\n`;
             if (failed) body += `\n<details open><summary>Failed tests</summary>\n\n\`\`\`\n${failed}\n\`\`\`\n</details>\n`;
             if (summary) body += `\n<details><summary>Test summary</summary>\n\n\`\`\`\n${summary.trim()}\n\`\`\`\n</details>\n`;
-            body += `\n<sub>Posted by the "Build and test everything" workflow and updated on every push. The direct download is a pre-release that is replaced on every push and deleted when the PR closes; the zip artifact needs a GitHub login and expires with the run's retention.</sub>\n`;
+            body += `\n<sub>Posted by the "Build and test everything" workflow for every push. The direct download is a pre-release that is replaced on every push and deleted when the PR closes; the zip artifact needs a GitHub login and expires with the run's retention.</sub>\n`;
 
+            // One new comment per run, so the history of every push stays visible.
             const { owner, repo } = context.repo;
-            const issue_number = pr.number;
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-              core.info(`updated comment ${existing.id}`);
-            } else {
-              const { data } = await github.rest.issues.createComment({ owner, repo, issue_number, body });
-              core.info(`created comment ${data.id}`);
-            }
+            const { data } = await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+            core.info(`created comment ${data.id}`);
