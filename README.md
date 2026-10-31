@@ -196,11 +196,11 @@ Reverse engineering of the BMS firmware (a PIC16F1788) explains the messages and
 | `0x0C` | uint16 | 1 s | cell balancing bit mask |
 | `0x0D` | 3 bytes | 1 s, XR 4210 and Pint only | cycle counter (uint16), state of health in % |
 | `0x0E` | 1 byte | reply to a command (Pint) | acknowledgement; never seen with Owie because commands cannot reach the BMS |
-| `0x0F`, `0x10`, `0x11` | 5, 10, 4 bytes | 1 s, newer Pint firmware | unknown |
+| `0x0F`, `0x10`, `0x11` | 5, 10, 4 bytes | newer Pint firmware (3008); rate not established | unknown - known only from captured frames |
 
 ## Power-off
 
-Right before the BMS cuts power it sends a bare ASCII code with no preamble or checksum: `BU` power button, `DC` done charging, `CD` charger disconnected, `ZC` idle timeout (20 min without current), `UV` under-voltage, `CUV` critical under-voltage, `OV` over-voltage, `OT` over-temperature, `OC` over-current, `QC` hardware fault input, `PR` pre-charge failed, `CS` current-sensor zero out of range, `CC` charge over-current (Pint). It then drains its transmit buffer and waits about one second before releasing its power latch - that second is what gives Owie time to store its battery state. The same reason is reported as a code (1-13, in the order above) in message `0x09` after the next boot. Message `0x0B` is the *boot* message, not a shutdown signal.
+Right before the BMS cuts power it sends a bare ASCII code with no preamble or checksum: `BU` power button, `DC` done charging, `CD` charger disconnected, `ZC` idle timeout (20 min without current), `UV` under-voltage, `CUV` critical under-voltage, `OV` over-voltage, `OT` over-temperature, `OC` over-current, `QC` hardware fault input, `PR` pre-charge failed, `CS` current-sensor zero out of range, `CC` charge over-current (Pint). It then drains its transmit buffer and waits about one second before releasing its power latch - that second is what gives Owie time to store its battery state. The same reason is reported as a numeric code in message `0x09` after the next boot: DC 1, CD 2, BU 3, QC 4, OC 5, UV 6, CUV 7, OT 8, OV 9, PR 10, ZC 11, CS 12, CC 13. Message `0x0B` is the *boot* message, not a shutdown signal.
 
 ## Known limitations
 
