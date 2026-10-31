@@ -118,6 +118,50 @@ class BmsRelay {
   }
   bool isBatteryOvercharged() { return last_status_byte_ & 8; }
 
+  // ---- BMS identity and health, from messages 0x07/0x08/0x09/0x0B/0x0C/0x0D ----
+
+  /**
+   * @brief Firmware version from the boot message 0x0B: 2006 = XR hardware
+   * 4206-4209, 2007 = XR 4210, 3004/3005/3008 = Pint. 0 until seen (the
+   * message is only sent once at power up).
+   */
+  uint16_t getBmsFirmwareVersion() { return bms_firmware_version_; }
+
+  /**
+   * @brief Hardware/variant byte from message 0x08: 0x02 = XR 4208-4210,
+   * 0x04 = XR 4206, 0x06 = Pint. 0 until seen.
+   */
+  uint8_t getBmsVariant() { return bms_variant_; }
+
+  /**
+   * @brief Reason for the last BMS power-off, from message 0x09 (the code the
+   * BMS stored in its EEPROM when it shut down): 1 DC done charging, 2 CD
+   * charger disconnected, 3 BU power button, 4 QC hardware fault input,
+   * 5 OC over-current, 6 UV under-voltage, 7 CUV critical under-voltage,
+   * 8 OT over-temperature, 9 OV over-voltage, 10 PR pre-charge failed,
+   * 11 ZC idle timeout, 12 CS current sensor fault, 13 CC charge over-current
+   * (Pint). 0 = none / not seen.
+   */
+  uint8_t getLastShutdownReasonCode() { return last_shutdown_reason_code_; }
+  static const char* shutdownReasonName(uint8_t code);
+
+  // Protection thresholds the BMS reports in message 0x07, 0 until seen.
+  uint16_t getOverVoltageThresholdMillivolts() { return ov_threshold_mv_; }
+  uint16_t getChargeCompleteThresholdMillivolts() { return full_threshold_mv_; }
+  uint16_t getUnderVoltageThresholdMillivolts() { return uv_threshold_mv_; }
+  uint8_t getOverTemperatureThresholdCelsius() { return ot_threshold_c_; }
+
+  /** @brief Cell balancing mask from message 0x0C, one bit per cell. */
+  uint16_t getBalancingMask() { return balancing_mask_; }
+
+  /**
+   * @brief Cycle counter and state of health from message 0x0D. Only XR 4210
+   * and Pint BMSes send it; hasCycleInfo() tells whether it was seen.
+   */
+  bool hasCycleInfo() { return has_cycle_info_; }
+  uint16_t getCycleCount() { return cycle_count_; }
+  uint8_t getStateOfHealthPercent() { return state_of_health_percent_; }
+
   const PacketTracker& getPacketTracker() const { return packet_tracker_; }
 
   BatteryFuelGauge& getBatteryFuelGauge() { return battery_fuel_gauge_; }
@@ -147,6 +191,17 @@ class BmsRelay {
   int8_t temperatures_celsius_[5] = {0};
   int8_t avg_temperature_celsius_ = 0;
   uint8_t last_status_byte_ = 0;
+  uint16_t bms_firmware_version_ = 0;
+  uint8_t bms_variant_ = 0;
+  uint8_t last_shutdown_reason_code_ = 0;
+  uint16_t ov_threshold_mv_ = 0;
+  uint16_t full_threshold_mv_ = 0;
+  uint16_t uv_threshold_mv_ = 0;
+  uint8_t ot_threshold_c_ = 0;
+  uint16_t balancing_mask_ = 0;
+  bool has_cycle_info_ = false;
+  uint16_t cycle_count_ = 0;
+  uint8_t state_of_health_percent_ = 0;
   const Source source_;
   const Sink sink_;
   const MillisProvider millis_provider_;
@@ -160,6 +215,7 @@ class BmsRelay {
   void batteryPercentageParser(Packet& p);
   void cellVoltageParser(Packet& p);
   void temperatureParser(Packet& p);
+  void bmsInfoParser(Packet& p);
 };
 
 #endif  // BMS_RELAY_H

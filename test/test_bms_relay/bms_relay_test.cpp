@@ -198,6 +198,38 @@ void testPacketReplay() {
                  0x06, 0x02, 0x0c});
 }
 
+void testBmsInfoParsing() {
+  TEST_ASSERT_FALSE(relay->hasCycleInfo());
+  TEST_ASSERT_EQUAL(0, relay->getBmsFirmwareVersion());
+  // Frames captured from a Pint: thresholds, variant, last fault, version,
+  // balancing mask, cycles + health.
+  addMockData({0xff, 0x55, 0xaa, 0x07, 0x10, 0xcc, 0x10, 0x57, 0x09, 0xc4, 0x50,
+               0x04, 0x65});
+  addMockData({0xff, 0x55, 0xaa, 0x08, 0x06, 0x02, 0x0c});
+  addMockData({0xff, 0x55, 0xaa, 0x09, 0x03, 0x02, 0x0a});
+  addMockData({0xff, 0x55, 0xaa, 0x0b, 0x0b, 0xc0, 0x02, 0xd4});
+  addMockData({0xff, 0x55, 0xaa, 0x0c, 0x00, 0x00, 0x02, 0x0a});
+  addMockData({0xff, 0x55, 0xaa, 0x0d, 0x02, 0xda, 0x47, 0x03, 0x2e});
+  relay->loop();
+  TEST_ASSERT_EQUAL(4300, relay->getOverVoltageThresholdMillivolts());
+  TEST_ASSERT_EQUAL(4183, relay->getChargeCompleteThresholdMillivolts());
+  TEST_ASSERT_EQUAL(2500, relay->getUnderVoltageThresholdMillivolts());
+  TEST_ASSERT_EQUAL(80, relay->getOverTemperatureThresholdCelsius());
+  TEST_ASSERT_EQUAL(0x06, relay->getBmsVariant());
+  TEST_ASSERT_EQUAL(3, relay->getLastShutdownReasonCode());
+  TEST_ASSERT_EQUAL_STRING("BU - power button",
+                           BmsRelay::shutdownReasonName(3));
+  TEST_ASSERT_EQUAL_STRING("none", BmsRelay::shutdownReasonName(0));
+  TEST_ASSERT_EQUAL_STRING("CC - charge over-current",
+                           BmsRelay::shutdownReasonName(13));
+  TEST_ASSERT_EQUAL_STRING("unknown", BmsRelay::shutdownReasonName(14));
+  TEST_ASSERT_EQUAL(3008, relay->getBmsFirmwareVersion());
+  TEST_ASSERT_EQUAL(0, relay->getBalancingMask());
+  TEST_ASSERT_TRUE(relay->hasCycleInfo());
+  TEST_ASSERT_EQUAL(730, relay->getCycleCount());
+  TEST_ASSERT_EQUAL(71, relay->getStateOfHealthPercent());
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(testUnknownDataAfterKnownPacketGetsFlushedImmediately);
@@ -210,6 +242,7 @@ int main(int argc, char** argv) {
   RUN_TEST(testCellVoltageParsing);
   RUN_TEST(testBlocksStatusPacketsUnlessWarning);
   RUN_TEST(testPacketReplay);
+  RUN_TEST(testBmsInfoParsing);
   UNITY_END();
 
   return 0;
