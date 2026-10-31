@@ -91,6 +91,10 @@ void bms_setup() {
   //   saveSettings();
   // });
 
+  // Accepted by controllers regardless of the real BMS serial (see the
+  // README). The same value has been seen programmed as the user ID of a
+  // stock late-model XR BMS, so it looks like a factory default rather than
+  // a random pick.
   relay->setBMSSerialOverride(0xFFABCDEF);
 
   setupWifi();
