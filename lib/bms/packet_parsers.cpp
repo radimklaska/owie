@@ -88,7 +88,8 @@ void BmsRelay::temperatureParser(Packet& p) {
     return;
   }
   // 0x4 message: five unsigned bytes in degrees Celsius. The BMS clamps at
-  // 0 C from below and reports 0xFF for a sensor that is out of range. The
+  // 0 C from below and reports 0xFF for a reading above the clamp (its
+  // "sensor error" case, e.g. a shorted thermistor). The
   // first four are the pack thermistors; the fifth sits on the BMS board
   // (different NTC curve, 175 C clamp) and the BMS itself leaves it out of
   // its own min/max logic, so it is left out of the average here too.

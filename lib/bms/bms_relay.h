@@ -90,8 +90,9 @@ class BmsRelay {
   uint16_t getTotalVoltageMillivolts() { return total_voltage_millivolts_; }
 
   /**
-   * @brief Value the BMS reports for a thermistor that is open, shorted or
-   * above its clamp (105 C for the pack sensors, 175 C for the board sensor).
+   * @brief Value the BMS reports when a thermistor reads above its clamp
+   * (105 C for the pack sensors, 175 C for the board sensor), e.g. a shorted
+   * sensor - the BMS's own "sensor error" case. An open sensor reads as 0 C.
    */
   static constexpr uint8_t TEMPERATURE_INVALID = 0xFF;
 
