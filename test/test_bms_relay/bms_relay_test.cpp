@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <deque>
 #include <memory>
+#include <string>
 
 #include "packet.h"
 
@@ -75,6 +76,7 @@ void testSerialGetsRecordedAndIntercepted(void) {
 void testPacketLengths() {
   std::vector<std::vector<uint8_t>> packets = {
       {0xff, 0x55, 0xaa, 0x00, 0x80, 0x02, 0x7e},
+      {0xff, 0x55, 0xaa, 0x01, 0x1c, 0x02, 0x02, 0x1d},
       {0xff, 0x55, 0xaa, 0x02, 0x0f, 0x28, 0x0f, 0x2c, 0x0f, 0x2b,
        0x0f, 0x29, 0x0f, 0x2a, 0x0f, 0x2b, 0x0f, 0x2a, 0x0f, 0x2c,
        0x0f, 0x29, 0x0f, 0x2b, 0x0f, 0x29, 0x0f, 0x2a, 0x0f, 0x22,
@@ -90,6 +92,7 @@ void testPacketLengths() {
       {0xff, 0x55, 0xaa, 0x0b, 0x0b, 0xc0, 0x02, 0xd4},
       {0xff, 0x55, 0xaa, 0x0c, 0x00, 0x00, 0x02, 0x0a},
       {0xff, 0x55, 0xaa, 0x0d, 0x02, 0xda, 0x47, 0x03, 0x2e},
+      {0xff, 0x55, 0xaa, 0x0e, 0x01, 0x02, 0x0d},
       {0xff, 0x55, 0xaa, 0x0f, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02, 0x0f},
       {0xff, 0x55, 0xaa, 0x10, 0x03, 0x03, 0x0b, 0x03, 0x03, 0x03, 0x03, 0x03,
        0x03, 0x03, 0x02, 0x34},
@@ -198,6 +201,83 @@ void testPacketReplay() {
                  0x06, 0x02, 0x0c});
 }
 
+void testShutdownWarningParsedAndNeverReplayed() {
+  timeMillis = 1000;
+  // 28 s left, reason 2 = under-voltage.
+  addMockData({0xff, 0x55, 0xaa, 0x01, 0x1c, 0x02, 0x02, 0x1d});
+  relay->loop();
+  expectDataOut({0xff, 0x55, 0xaa, 0x01, 0x1c, 0x02, 0x02, 0x1d});
+  TEST_ASSERT_EQUAL(28, relay->getShutdownCountdownSeconds());
+  TEST_ASSERT_EQUAL(2, relay->getShutdownReasonMask());
+  // Still valid just under 2 s later, gone after that.
+  timeMillis = 2999;
+  relay->loop();
+  TEST_ASSERT_EQUAL(28, relay->getShutdownCountdownSeconds());
+  timeMillis = 3001;
+  relay->loop();
+  TEST_ASSERT_EQUAL(-1, relay->getShutdownCountdownSeconds());
+  // Far in the future: no replay of the warning, unlike regular packets.
+  timeMillis = 100000;
+  relay->loop();
+  expectDataOut({});
+}
+
+void testShutdownCodeTriggersCallbackOnce() {
+  std::string code;
+  int fires = 0;
+  relay->setShutdownCallback([&](const char* c) {
+    code = c;
+    fires++;
+  });
+  const std::vector<uint8_t> validPacket = {0xff, 0x55, 0xaa, 0x08,
+                                            0x06, 0x02, 0x0c};
+  // Garbage before the first valid packet is ignored.
+  addMockData({'B', 'U'});
+  relay->loop();
+  TEST_ASSERT_EQUAL(0, fires);
+  TEST_ASSERT_EQUAL_STRING("", relay->getShutdownCode());
+
+  // Power button: "BU" right after a frame, followed by the 10-byte record
+  // that 4210/Pint boards append. Exactly one callback.
+  addMockData(validPacket);
+  relay->loop();
+  addMockData({'B', 'U'});
+  relay->loop();
+  TEST_ASSERT_EQUAL(1, fires);
+  TEST_ASSERT_EQUAL_STRING("BU", code.c_str());
+  TEST_ASSERT_EQUAL_STRING("BU", relay->getShutdownCode());
+  addMockData({0x07, 0xd7, 0xff, 0xab, 0xcd, 0xef, 0x03, 0x00, 0x10, 0x62});
+  relay->loop();
+  TEST_ASSERT_EQUAL(1, fires);
+
+  // Three-letter code.
+  addMockData(validPacket);
+  relay->loop();
+  addMockData({'C', 'U', 'V'});
+  relay->loop();
+  TEST_ASSERT_EQUAL(2, fires);
+  TEST_ASSERT_EQUAL_STRING("CUV", code.c_str());
+
+  // "PR" carries three binary bytes after the text; still one callback.
+  addMockData(validPacket);
+  relay->loop();
+  addMockData({'P', 'R', 0x50, 0x08, 0x00});
+  relay->loop();
+  TEST_ASSERT_EQUAL(3, fires);
+  TEST_ASSERT_EQUAL_STRING("PR", code.c_str());
+
+  // A run that does not start with a code never fires, even if a code
+  // appears later in it.
+  addMockData(validPacket);
+  relay->loop();
+  addMockData({'Z', 'Z', 'B', 'U'});
+  relay->loop();
+  TEST_ASSERT_EQUAL(3, fires);
+
+  // Unknown bytes are still forwarded unchanged.
+  TEST_ASSERT_TRUE(mockDataOut.size() > 0);
+}
+
 int main(int argc, char** argv) {
   UNITY_BEGIN();
   RUN_TEST(testUnknownDataAfterKnownPacketGetsFlushedImmediately);
@@ -210,6 +290,8 @@ int main(int argc, char** argv) {
   RUN_TEST(testCellVoltageParsing);
   RUN_TEST(testBlocksStatusPacketsUnlessWarning);
   RUN_TEST(testPacketReplay);
+  RUN_TEST(testShutdownWarningParsedAndNeverReplayed);
+  RUN_TEST(testShutdownCodeTriggersCallbackOnce);
   UNITY_END();
 
   return 0;

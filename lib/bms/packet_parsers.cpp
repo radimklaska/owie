@@ -97,6 +97,19 @@ void BmsRelay::temperatureParser(Packet& p) {
   avg_temperature_celsius_ = temperature_sum / 5;
 }
 
+void BmsRelay::shutdownWarningParser(Packet& p) {
+  if (p.getType() != 1) {
+    return;
+  }
+  // 0x1 message: the BMS is counting down to a protective power-off. Sent
+  // every 100 ms while any countdown is below 29 s. Byte 0 = seconds left,
+  // byte 1 = reason mask (1 over-voltage, 2 under-voltage, 4 over-temperature,
+  // 8 idle timer). Forwarded unchanged.
+  shutdown_countdown_seconds_ = p.data()[0];
+  shutdown_reason_mask_ = p.data()[1];
+  shutdown_warning_millis_ = now_millis_;
+}
+
 void BmsRelay::bmsStatusParser(Packet& p) {
   if (p.getType() != 0) {
     return;

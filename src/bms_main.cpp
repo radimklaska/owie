@@ -77,19 +77,24 @@ void bms_setup() {
     relay->getBatteryFuelGauge().restoreState(gaugeState);
   }
 
-  // relay->setPowerOffCallback([]() {
-  //   Settings->graceful_shutdown_count++;
-  //   const FuelGaugeState &gaugeState = relay->getBatteryFuelGauge().getState();
-
-  //   Settings->has_battery_state = true;
-  //   Settings->battery_state.bottom_milliamp_seconds =
-  //       gaugeState.bottomMilliampSeconds;
-  //   Settings->battery_state.current_milliamp_seconds =
-  //       gaugeState.currentMilliampSeconds;
-  //   Settings->battery_state.bottom_soc = gaugeState.bottomSoc;
-  //   Settings->battery_state.top_soc = gaugeState.topSoc;
-  //   saveSettings();
-  // });
+  // The BMS sends a header-less fault code ("BU" for the power button, ...)
+  // right before it powers off. It then drains its TX buffer and waits about
+  // a second before releasing its power latch, but it also drops a
+  // peripheral-enable output (RC0) earlier in that sequence, so how long
+  // Owie's 5V survives is to be confirmed on a board. Saving settings takes
+  // tens of milliseconds, so it is done immediately.
+  relay->setShutdownCallback([](const char *) {
+    Settings->graceful_shutdown_count++;
+    const FuelGaugeState &gaugeState = relay->getBatteryFuelGauge().getState();
+    Settings->has_battery_state = true;
+    Settings->battery_state.bottom_milliamp_seconds =
+        gaugeState.bottomMilliampSeconds;
+    Settings->battery_state.current_milliamp_seconds =
+        gaugeState.currentMilliampSeconds;
+    Settings->battery_state.bottom_soc = gaugeState.bottomSoc;
+    Settings->battery_state.top_soc = gaugeState.topSoc;
+    saveSettings();
+  });
 
   relay->setBMSSerialOverride(0xFFABCDEF);
 

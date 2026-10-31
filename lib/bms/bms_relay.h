@@ -30,6 +30,16 @@ class BmsRelay {
 
   typedef std::function<unsigned long()> MillisProvider;
 
+  /**
+   * @brief Called once when the BMS announces that it is powering off.
+   * Right before shutting down the BMS sends a bare ASCII fault code without
+   * any frame header ("BU" = power button, "DC" = done charging, "CD" =
+   * charger disconnected, "ZC" = idle timeout, "UV"/"CUV"/"OV"/"OT"/"OC"/
+   * "QC"/"PR"/"CS"/"CC" = protections), then drains its TX buffer and waits
+   * about a second before cutting power. The argument is that code.
+   */
+  typedef std::function<void(const char*)> ShutdownCallback;
+
   BmsRelay(const Source& source, const Sink& sink,
            const MillisProvider& millisProvider);
 
@@ -48,6 +58,26 @@ class BmsRelay {
   }
 
   void setUnknownDataCallback(const Sink& c) { unknownDataCallback_ = c; }
+
+  void setShutdownCallback(const ShutdownCallback& c) { shutdownCallback_ = c; }
+
+  /**
+   * @brief Seconds until the BMS shuts itself down, as last announced in
+   * message 0x01, or -1 when no warning was received in the last 2 seconds.
+   */
+  int getShutdownCountdownSeconds();
+
+  /**
+   * @brief Reason bit mask of the last 0x01 warning: 1 = over-voltage,
+   * 2 = under-voltage, 4 = over-temperature, 8 = idle (zero current) timer.
+   */
+  uint8_t getShutdownReasonMask() { return shutdown_reason_mask_; }
+
+  /**
+   * @brief Fault code text the BMS sent before powering off ("BU", "DC",
+   * ...), empty string if none was seen yet.
+   */
+  const char* getShutdownCode() { return shutdown_code_; }
 
   /**
    * @brief If set to non-zero value, spoofs captured BMS serial
@@ -127,12 +157,27 @@ class BmsRelay {
   static constexpr int CURRENT_SCALER = 55;
   void processNextByte();
   void purgeUnknownData();
+  void trackUnknownByte(uint8_t b);
   void maybeReplayPackets();
   void ingestPacket(Packet& p);
 
   std::vector<PacketCallback> receivedPacketCallbacks_;
   std::vector<PacketCallback> forwardedPacketCallbacks_;
   Sink unknownDataCallback_;
+  ShutdownCallback shutdownCallback_;
+
+  // Detection of the header-less fault code that precedes a BMS power-off:
+  // the first bytes of an unknown-data run that directly follows a valid
+  // packet.
+  bool seen_valid_packet_ = false;
+  uint8_t unknown_run_[3] = {0};
+  uint8_t unknown_run_len_ = 0;
+  bool unknown_run_fired_ = false;
+  char shutdown_code_[4] = {0};
+
+  int8_t shutdown_countdown_seconds_ = -1;
+  uint8_t shutdown_reason_mask_ = 0;
+  int32_t shutdown_warning_millis_ = 0;
 
   std::vector<uint8_t> sourceBuffer_;
   uint32_t serial_override_ = 0;
@@ -155,6 +200,7 @@ class BmsRelay {
   BatteryFuelGauge battery_fuel_gauge_;
 
   void bmsStatusParser(Packet& p);
+  void shutdownWarningParser(Packet& p);
   void bmsSerialParser(Packet& p);
   void currentParser(Packet& p);
   void batteryPercentageParser(Packet& p);
