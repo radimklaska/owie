@@ -97,8 +97,9 @@ jobs:
           name: firmware
           path: fw
       - name: Publish firmware.bin as a direct download (per-PR pre-release)
-        # Artifacts are only served as zip files, so the .bin is published as the
-        # single asset of a pre-release tagged ci-pr-<number>. The release is
+        # Artifacts are only served as zip files, so the .bin is published as
+        # firmware_<short sha>.bin, the single asset of a pre-release tagged
+        # ci-pr-<number>. The release is
         # recreated on every push (tag follows the PR head) and deleted by
         # pr_cleanup.yml when the PR closes.
         id: firmware
@@ -112,11 +113,14 @@ jobs:
         run: |
           set -euo pipefail
           TAG="ci-pr-${PR_NUMBER}"
+          ASSET="firmware_${HEAD_SHA:0:7}.bin"
+          cp fw/firmware.bin "fw/${ASSET}"
           NOTES="Automated build of PR #${PR_NUMBER} at ${HEAD_SHA} by the \"Build and test everything\" workflow. Pre-release only: replaced on every push to the PR and deleted when the PR closes. This is not a release of Owie; see Releases for those."
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" fw/firmware.bin \
+          gh release create "$TAG" "fw/${ASSET}" \
             --prerelease --target "$HEAD_SHA" --title "CI build for PR #${PR_NUMBER}" --notes "$NOTES"
-          echo "url=https://github.com/${GH_REPO}/releases/download/${TAG}/firmware.bin" >> "$GITHUB_OUTPUT"
+          echo "name=${ASSET}" >> "$GITHUB_OUTPUT"
+          echo "url=https://github.com/${GH_REPO}/releases/download/${TAG}/${ASSET}" >> "$GITHUB_OUTPUT"
       - name: Comment test result and firmware links on the PR
         uses: actions/github-script@v7
         env:
@@ -124,6 +128,7 @@ jobs:
           BUILD_OUTCOME: ${{ needs.build_and_test.outputs.build }}
           ARTIFACT_URL: ${{ needs.build_and_test.outputs.firmware_artifact_url }}
           FIRMWARE_URL: ${{ steps.firmware.outputs.url }}
+          FIRMWARE_NAME: ${{ steps.firmware.outputs.name }}
         with:
           script: |
             const fs = require('fs');
@@ -146,8 +151,9 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const artifactUrl = process.env.ARTIFACT_URL;
             const firmwareUrl = process.env.FIRMWARE_URL;
+            const firmwareName = process.env.FIRMWARE_NAME || `firmware_${sha}.bin`;
             const firmwareCell = [
-              firmwareUrl ? `[firmware.bin](${firmwareUrl}) (direct download, ${sha})` : '',
+              firmwareUrl ? `[${firmwareName}](${firmwareUrl}) (direct download)` : '',
               artifactUrl ? `[zip artifact](${artifactUrl})` : '',
             ].filter(Boolean).join(' · ') || 'not available';
 
