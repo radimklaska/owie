@@ -97,6 +97,61 @@ void BmsRelay::temperatureParser(Packet& p) {
   avg_temperature_celsius_ = temperature_sum / 5;
 }
 
+void BmsRelay::bmsInfoParser(Packet& p) {
+  const uint8_t* const data = p.data();
+  switch (p.getType()) {
+    case 0x07:
+      // Thresholds: over-voltage mV, charge-complete mV, under-voltage mV
+      // (uint16 each), over-temperature C.
+      ov_threshold_mv_ = int16FromNetworkOrder(data);
+      full_threshold_mv_ = int16FromNetworkOrder(data + 2);
+      uv_threshold_mv_ = int16FromNetworkOrder(data + 4);
+      ot_threshold_c_ = data[6];
+      break;
+    case 0x08:
+      bms_variant_ = data[0];
+      break;
+    case 0x09:
+      last_shutdown_reason_code_ = data[0];
+      break;
+    case 0x0B:
+      bms_firmware_version_ = int16FromNetworkOrder(data);
+      break;
+    case 0x0C:
+      balancing_mask_ = int16FromNetworkOrder(data);
+      break;
+    case 0x0D:
+      cycle_count_ = int16FromNetworkOrder(data);
+      state_of_health_percent_ = data[2];
+      has_cycle_info_ = true;
+      break;
+    default:
+      break;
+  }
+}
+
+const char* BmsRelay::shutdownReasonName(uint8_t code) {
+  static const char* const NAMES[] = {
+      "none",
+      "DC - done charging",
+      "CD - charger disconnected",
+      "BU - power button",
+      "QC - hardware fault input",
+      "OC - over-current",
+      "UV - under-voltage",
+      "CUV - critical under-voltage",
+      "OT - over-temperature",
+      "OV - over-voltage",
+      "PR - pre-charge failed",
+      "ZC - idle timeout",
+      "CS - current sensor fault",
+      "CC - charge over-current"};
+  if (code >= sizeof(NAMES) / sizeof(*NAMES)) {
+    return "unknown";
+  }
+  return NAMES[code];
+}
+
 void BmsRelay::bmsStatusParser(Packet& p) {
   if (p.getType() != 0) {
     return;

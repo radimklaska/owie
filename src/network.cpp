@@ -172,6 +172,67 @@ String templateProcessor(const String &var) {
     return String(relay->getRegeneratedChargeMah());
   } else if (var == "OWIE_version") {
     return owie_version;
+  } else if (var == "BMS_FIRMWARE_VERSION") {
+    const uint16_t v = relay->getBmsFirmwareVersion();
+    if (v == 0) {
+      return "n/a (sent once at BMS boot)";
+    }
+    String s(v);
+    if (v == 2006) s.concat(" (XR 4206-4209)");
+    else if (v == 2007) s.concat(" (XR 4210)");
+    else if (v >= 3000 && v < 4000) s.concat(" (Pint)");
+    return s;
+  } else if (var == "BMS_VARIANT") {
+    const uint8_t v = relay->getBmsVariant();
+    switch (v) {
+      case 0: return "n/a";
+      case 0x02: return "0x02 (XR 4208-4210)";
+      case 0x04: return "0x04 (XR 4206)";
+      case 0x06: return "0x06 (Pint)";
+    }
+    char buf[8];
+    snprintf(buf, sizeof(buf), "0x%02X", v);
+    return String(buf);
+  } else if (var == "BMS_LAST_SHUTDOWN") {
+    const uint8_t code = relay->getLastShutdownReasonCode();
+    String s(code);
+    s.concat(" (");
+    s.concat(BmsRelay::shutdownReasonName(code));
+    s.concat(")");
+    return s;
+  } else if (var == "BMS_THRESHOLDS") {
+    if (relay->getOverVoltageThresholdMillivolts() == 0) {
+      return "n/a";
+    }
+    String s;
+    s.reserve(80);
+    s.concat("OV ");
+    s.concat(relay->getOverVoltageThresholdMillivolts());
+    s.concat(" mV, full ");
+    s.concat(relay->getChargeCompleteThresholdMillivolts());
+    s.concat(" mV, UV ");
+    s.concat(relay->getUnderVoltageThresholdMillivolts());
+    s.concat(" mV, OT ");
+    s.concat(relay->getOverTemperatureThresholdCelsius());
+    s.concat(" C");
+    return s;
+  } else if (var == "BMS_BALANCING") {
+    const uint16_t mask = relay->getBalancingMask();
+    int cells = 0;
+    for (uint16_t m = mask; m; m >>= 1) cells += m & 1;
+    char buf[32];
+    snprintf(buf, sizeof(buf), "0x%04X (%d cells)", mask, cells);
+    return String(buf);
+  } else if (var == "BMS_CYCLES") {
+    if (!relay->hasCycleInfo()) {
+      return "n/a (not reported by XR 4206-4209 BMS)";
+    }
+    return String(relay->getCycleCount());
+  } else if (var == "BMS_HEALTH") {
+    if (!relay->hasCycleInfo()) {
+      return "n/a";
+    }
+    return String(relay->getStateOfHealthPercent()) + "%";
   } else if (var == "SSID") {
     return Settings->ap_name;
   } else if (var == "PASS") {
