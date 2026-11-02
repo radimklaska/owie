@@ -150,12 +150,28 @@ void testCellVoltageParsing() {
 }
 
 void testTemperatureParsing() {
-  addMockData({0xff, 0x55, 0xaa, 0x04, 0x13, 0x14, 0x14, 0x14, 0x16, 0x02, 0xFF,
-               0x55, 0xAA});
+  // (The checksum of this frame was wrong before and the test was never run.)
+  addMockData({0xff, 0x55, 0xaa, 0x04, 0x13, 0x14, 0x14, 0x14, 0x16, 0x02, 0x67,
+               0xFF, 0x55, 0xAA});
   relay->loop();
-  int8_t expected[5] = {19, 20, 20, 20, 22};
-  TEST_ASSERT_EQUAL_INT8_ARRAY(expected, relay->getTemperaturesCelsius(), 5);
-  TEST_ASSERT_EQUAL(20, relay->getAverageTemperatureCelsius());
+  uint8_t expected[5] = {19, 20, 20, 20, 22};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, relay->getTemperaturesCelsius(), 5);
+  // Average over the four pack sensors only (79 / 4), not the board sensor.
+  TEST_ASSERT_EQUAL(19, relay->getAverageTemperatureCelsius());
+}
+
+void testTemperatureParsingInvalidSensorAndHighValues() {
+  // Sensor 1 out of range (0xFF), sensor 3 at 130 C (would be negative as
+  // int8), board sensor 0xFF.
+  addMockData({0xff, 0x55, 0xaa, 0x04, 0x13, 0xff, 0x14, 0x82, 0xff, 0x04, 0xa9,
+               0xFF, 0x55, 0xAA});
+  relay->loop();
+  uint8_t expected[5] = {19, 0xff, 20, 130, 0xff};
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, relay->getTemperaturesCelsius(), 5);
+  TEST_ASSERT_EQUAL(BmsRelay::TEMPERATURE_INVALID,
+                    relay->getTemperaturesCelsius()[1]);
+  // (19 + 20 + 130) / 3 = 56
+  TEST_ASSERT_EQUAL(56, relay->getAverageTemperatureCelsius());
 }
 
 void testBlocksStatusPacketsUnlessWarning() {
@@ -208,6 +224,8 @@ int main(int argc, char** argv) {
   RUN_TEST(testBatterySocParsing);
   RUN_TEST(testCurrentParsing);
   RUN_TEST(testCellVoltageParsing);
+  RUN_TEST(testTemperatureParsing);
+  RUN_TEST(testTemperatureParsingInvalidSensorAndHighValues);
   RUN_TEST(testBlocksStatusPacketsUnlessWarning);
   RUN_TEST(testPacketReplay);
   UNITY_END();
