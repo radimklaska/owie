@@ -21,7 +21,7 @@ AsyncWebSocket ws("/rawdata");
 const String defaultPass("****");
 BmsRelay *relay;
 
-const String owie_version = "1.5.0";
+const String owie_version = "1.5.1";
 
 String renderPacketStatsTable() {
   String result(
@@ -76,14 +76,38 @@ String uptimeString() {
   return ret;
 }
 
+String bmsWarningString() {
+  const int secs = relay->getShutdownCountdownSeconds();
+  if (secs < 0) {
+    return String("none");
+  }
+  String s;
+  s.reserve(64);
+  s.concat("BMS off in ");
+  s.concat(secs);
+  s.concat(" s:");
+  const uint8_t mask = relay->getShutdownReasonMask();
+  if (mask & 1) s.concat(" over-voltage");
+  if (mask & 2) s.concat(" under-voltage");
+  if (mask & 4) s.concat(" over-temperature");
+  if (mask & 8) s.concat(" idle");
+  return s;
+}
+
 String getTempString() {
-  const int8_t *thermTemps = relay->getTemperaturesCelsius();
+  const uint8_t *thermTemps = relay->getTemperaturesCelsius();
   String temps;
   temps.reserve(256);
   temps.concat("<tr>");
   for (int i = 0; i < 5; i++) {
-    temps.concat("<td>");
-    temps.concat(thermTemps[i]);
+    // The last column is the thermistor on the BMS board, not a pack sensor.
+    temps.concat(i == BmsRelay::BOARD_TEMPERATURE_INDEX ? "<td title='BMS board'>"
+                                                        : "<td>");
+    if (thermTemps[i] == BmsRelay::TEMPERATURE_INVALID) {
+      temps.concat("n/a");
+    } else {
+      temps.concat(thermTemps[i]);
+    }
     temps.concat("</td>");
   }
   temps.concat("<tr>");
@@ -116,6 +140,7 @@ String generateOwieStatusJson() {
   status["REGENERATED_CHARGE_MAH"] =
       String(relay->getRegeneratedChargeMah()) + " mAh";
   status["UPTIME"] = uptimeString();
+  status["BMS_WARNING"] = bmsWarningString();
   status["CELL_VOLTAGE_TABLE"] = out;
   status["TEMPERATURE_TABLE"] = getTempString();
 
@@ -172,6 +197,67 @@ String templateProcessor(const String &var) {
     return String(relay->getRegeneratedChargeMah());
   } else if (var == "OWIE_version") {
     return owie_version;
+  } else if (var == "BMS_FIRMWARE_VERSION") {
+    const uint16_t v = relay->getBmsFirmwareVersion();
+    if (v == 0) {
+      return "n/a (sent once at BMS boot)";
+    }
+    String s(v);
+    if (v == 2006) s.concat(" (XR 4206-4209)");
+    else if (v == 2007) s.concat(" (XR 4210)");
+    else if (v >= 3000 && v < 4000) s.concat(" (Pint)");
+    return s;
+  } else if (var == "BMS_VARIANT") {
+    const uint8_t v = relay->getBmsVariant();
+    switch (v) {
+      case 0: return "n/a";
+      case 0x02: return "0x02 (XR 4208-4210)";
+      case 0x04: return "0x04 (XR 4206)";
+      case 0x06: return "0x06 (Pint)";
+    }
+    char buf[8];
+    snprintf(buf, sizeof(buf), "0x%02X", v);
+    return String(buf);
+  } else if (var == "BMS_LAST_SHUTDOWN") {
+    const uint8_t code = relay->getLastShutdownReasonCode();
+    String s(code);
+    s.concat(" (");
+    s.concat(BmsRelay::shutdownReasonName(code));
+    s.concat(")");
+    return s;
+  } else if (var == "BMS_THRESHOLDS") {
+    if (relay->getOverVoltageThresholdMillivolts() == 0) {
+      return "n/a";
+    }
+    String s;
+    s.reserve(80);
+    s.concat("OV ");
+    s.concat(relay->getOverVoltageThresholdMillivolts());
+    s.concat(" mV, full ");
+    s.concat(relay->getChargeCompleteThresholdMillivolts());
+    s.concat(" mV, UV ");
+    s.concat(relay->getUnderVoltageThresholdMillivolts());
+    s.concat(" mV, OT ");
+    s.concat(relay->getOverTemperatureThresholdCelsius());
+    s.concat(" C");
+    return s;
+  } else if (var == "BMS_BALANCING") {
+    const uint16_t mask = relay->getBalancingMask();
+    int cells = 0;
+    for (uint16_t m = mask; m; m >>= 1) cells += m & 1;
+    char buf[32];
+    snprintf(buf, sizeof(buf), "0x%04X (%d cells)", mask, cells);
+    return String(buf);
+  } else if (var == "BMS_CYCLES") {
+    if (!relay->hasCycleInfo()) {
+      return "n/a (not reported by XR 4206-4209 BMS)";
+    }
+    return String(relay->getCycleCount());
+  } else if (var == "BMS_HEALTH") {
+    if (!relay->hasCycleInfo()) {
+      return "n/a";
+    }
+    return String(relay->getStateOfHealthPercent()) + "%";
   } else if (var == "SSID") {
     return Settings->ap_name;
   } else if (var == "PASS") {
@@ -183,6 +269,8 @@ String templateProcessor(const String &var) {
     return String(Settings->graceful_shutdown_count);
   } else if (var == "UPTIME") {
     return uptimeString();
+  } else if (var == "BMS_WARNING") {
+    return bmsWarningString();
   } else if (var == "IS_LOCKED") {
     return lockedStatusDataAttrValue();
   } else if (var == "CAN_ENABLE_LOCKING") {
