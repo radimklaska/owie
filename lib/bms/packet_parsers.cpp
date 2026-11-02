@@ -34,9 +34,12 @@ void BmsRelay::currentParser(Packet& p) {
   }
   p.setShouldForward(isCharging());
 
-  // 0x5 message encodes current as signed int16.
-  // The scaling factor (tested on a Pint) seems to be 0.055
-  // i.e. 1 in the data message below corresponds to 55 milliamps.
+  // 0x5 message encodes current as signed int16 in raw BMS ADC counts,
+  // positive = discharge. The scaling factor (tested on a Pint) is 0.055,
+  // i.e. 1 count corresponds to 55 milliamps. That matches the BMS hardware
+  // (12-bit ADC, 4.5 V reference, 1 mOhm shunt behind a gain-20 amplifier
+  // -> 54.9 mA/count) and the BMS's own state-of-charge full-scale
+  // constants, so it applies to XR and Pint boards alike.
   current_milliamps_ = int16FromNetworkOrder(p.data()) * CURRENT_SCALER;
   battery_fuel_gauge_.updateCurrent(current_milliamps_, now_millis_);
 }
@@ -46,7 +49,12 @@ void BmsRelay::bmsSerialParser(Packet& p) {
     return;
   }
   // 0x6 message has the BMS serial number encoded inside of it.
-  // It is the last seven digits from the sticker on the back of the BMS.
+  // It is the last seven digits from the sticker on the back of the BMS. On
+  // the BMS side these are the low bytes of the four user-ID words of its
+  // microcontroller; the BMS only reports them and never checks anything, so
+  // whatever pairing exists is decided by the controller. XR BMSes with
+  // firmware 2006 (hardware 4206-4209) do not send this message at all;
+  // 4210 and Pint boards do.
   if (captured_serial_ == 0) {
     for (int i = 0; i < 4; i++) {
       captured_serial_ |= p.data()[i] << (8 * (3 - i));
@@ -66,8 +74,12 @@ void BmsRelay::cellVoltageParser(Packet& p) {
   if (p.getType() != 2) {
     return;
   }
-  // The data in this packet is 16 int16-s. First 15 of them is
-  // individual cell voltages in millivolts. The last value is mysterious.
+  // The data in this packet is 16 uint16-s. The first 15 are the individual
+  // cell voltages in millivolts. The 16th is not a cell: the BMS's send loop
+  // runs one word past its 15-entry cell array, so the word that follows it
+  // in BMS RAM goes out too - the BMS's millisecond counter since its
+  // one-second tick, typically 42 (the time its measurement block needs to
+  // get to this message).
   const uint8_t* const data = p.data();
   uint16_t total_voltage = 0;
   uint16_t min_voltage = 0xFFFF;
@@ -87,14 +99,39 @@ void BmsRelay::temperatureParser(Packet& p) {
   if (p.getType() != 4) {
     return;
   }
-  int8_t* const temperatures = (int8_t*)p.data();
-  int16_t temperature_sum = 0;
+  // 0x4 message: five unsigned bytes in degrees Celsius. The BMS clamps at
+  // 0 C from below and reports 0xFF for a reading above the clamp (its
+  // "sensor error" case, e.g. a shorted thermistor). The
+  // first four are the pack thermistors; the fifth sits on the BMS board
+  // (different NTC curve, 175 C clamp) and the BMS itself leaves it out of
+  // its own min/max logic, so it is left out of the average here too.
+  const uint8_t* const temperatures = p.data();
+  uint16_t temperature_sum = 0;
+  uint8_t valid_count = 0;
   for (int i = 0; i < 5; i++) {
-    int8_t temp = temperatures[i];
-    temperature_sum += temp;
+    const uint8_t temp = temperatures[i];
     temperatures_celsius_[i] = temp;
+    if (i == BOARD_TEMPERATURE_INDEX || temp == TEMPERATURE_INVALID) {
+      continue;
+    }
+    temperature_sum += temp;
+    valid_count++;
   }
-  avg_temperature_celsius_ = temperature_sum / 5;
+  avg_temperature_celsius_ =
+      valid_count == 0 ? 0 : temperature_sum / valid_count;
+}
+
+void BmsRelay::shutdownWarningParser(Packet& p) {
+  if (p.getType() != 1) {
+    return;
+  }
+  // 0x1 message: the BMS is counting down to a protective power-off. Sent
+  // every 100 ms while any countdown is below 29 s. Byte 0 = seconds left,
+  // byte 1 = reason mask (1 over-voltage, 2 under-voltage, 4 over-temperature,
+  // 8 idle timer). Forwarded unchanged.
+  shutdown_countdown_seconds_ = p.data()[0];
+  shutdown_reason_mask_ = p.data()[1];
+  shutdown_warning_millis_ = now_millis_;
 }
 
 void BmsRelay::bmsInfoParser(Packet& p) {

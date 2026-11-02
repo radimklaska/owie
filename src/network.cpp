@@ -21,7 +21,7 @@ AsyncWebSocket ws("/rawdata");
 const String defaultPass("****");
 BmsRelay *relay;
 
-const String owie_version = "1.5.0";
+const String owie_version = "1.5.1";
 
 String renderPacketStatsTable() {
   String result(
@@ -76,14 +76,38 @@ String uptimeString() {
   return ret;
 }
 
+String bmsWarningString() {
+  const int secs = relay->getShutdownCountdownSeconds();
+  if (secs < 0) {
+    return String("none");
+  }
+  String s;
+  s.reserve(64);
+  s.concat("BMS off in ");
+  s.concat(secs);
+  s.concat(" s:");
+  const uint8_t mask = relay->getShutdownReasonMask();
+  if (mask & 1) s.concat(" over-voltage");
+  if (mask & 2) s.concat(" under-voltage");
+  if (mask & 4) s.concat(" over-temperature");
+  if (mask & 8) s.concat(" idle");
+  return s;
+}
+
 String getTempString() {
-  const int8_t *thermTemps = relay->getTemperaturesCelsius();
+  const uint8_t *thermTemps = relay->getTemperaturesCelsius();
   String temps;
   temps.reserve(256);
   temps.concat("<tr>");
   for (int i = 0; i < 5; i++) {
-    temps.concat("<td>");
-    temps.concat(thermTemps[i]);
+    // The last column is the thermistor on the BMS board, not a pack sensor.
+    temps.concat(i == BmsRelay::BOARD_TEMPERATURE_INDEX ? "<td title='BMS board'>"
+                                                        : "<td>");
+    if (thermTemps[i] == BmsRelay::TEMPERATURE_INVALID) {
+      temps.concat("n/a");
+    } else {
+      temps.concat(thermTemps[i]);
+    }
     temps.concat("</td>");
   }
   temps.concat("<tr>");
@@ -116,6 +140,7 @@ String generateOwieStatusJson() {
   status["REGENERATED_CHARGE_MAH"] =
       String(relay->getRegeneratedChargeMah()) + " mAh";
   status["UPTIME"] = uptimeString();
+  status["BMS_WARNING"] = bmsWarningString();
   status["CELL_VOLTAGE_TABLE"] = out;
   status["TEMPERATURE_TABLE"] = getTempString();
 
@@ -244,6 +269,8 @@ String templateProcessor(const String &var) {
     return String(Settings->graceful_shutdown_count);
   } else if (var == "UPTIME") {
     return uptimeString();
+  } else if (var == "BMS_WARNING") {
+    return bmsWarningString();
   } else if (var == "IS_LOCKED") {
     return lockedStatusDataAttrValue();
   } else if (var == "CAN_ENABLE_LOCKING") {
