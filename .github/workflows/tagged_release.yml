@@ -30,6 +30,8 @@ jobs:
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
+          # Tags with a suffix (v1.6.0-rc1, v1.6.0-beta2) are pre-releases;
+          # plain vX.Y.Z tags are full releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             ./fw/firmware_*.bin
