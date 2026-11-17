@@ -31,7 +31,7 @@ This is a hobby project for its contributors and comes with absolutely no guaran
 
 ## Flashing Owie for the first time
 
-1. Plug the Wemos D1 Mini into your computer with a USB cable and open the [Owie flashing tool](https://klaska.net/owie-flashingtool/) in Chrome or Edge (it uses ESP Web Tools, which needs Web Serial).
+1. Plug the Wemos D1 Mini into your computer with a USB cable and open the [Owie flashing tool](https://owie-flashingtool.klaska.net/) in Chrome or Edge (it uses ESP Web Tools, which needs Web Serial).
 2. Pick a release (the latest one is marked) and click its install button. The tool lists the releases of this repository by default; you can also flash a `firmware.bin` you downloaded yourself.
 3. Verify the flash success: When the chip is on, you should see
    a WiFi network called `Owie-XXXX`. Connecting to it should send you straight to the status page of the Owie board. Don't worry about the data because the board isn't hooked up yet.
